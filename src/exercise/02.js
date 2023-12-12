@@ -98,7 +98,7 @@ function PokemonInfo({pokemonName}) {
 }*/
 
 // ex 2.1
-function asyncReducer(state, action) {
+/*function asyncReducer(state, action) {
   switch (action.type) {
     case 'pending': {
       return {status: 'pending', data: null, error: null}
@@ -136,24 +136,82 @@ function useAsync(asyncCallback, initialState){
     )
   }, [asyncCallback])
   return state
+}*/
+
+// ex 2.2
+function asyncReducer(state, action) {
+  switch (action.type) {
+    case 'pending': {
+      return {status: 'pending', data: null, error: null}
+    }
+    case 'resolved': {
+      return {status: 'resolved', data: action.data, error: null}
+    }
+    case 'rejected': {
+      return {status: 'rejected', data: null, error: action.error}
+    }
+    default: {
+      throw new Error(`Unhandled action type: ${action.type}`)
+    }
+  }
+}
+
+function useAsync(initialState){
+
+  const [state, dispatch] = React.useReducer(asyncReducer, initialState)
+
+  // Memoizing the run function is essential because it's a dependency of the useEffect below.
+  // And it is a dependency because useEffect relies on run to do its thing,
+  // so we need to listen to any changes in run in order to keep the state of our application synced.
+  // failing to memoize it could lead to infinite re-renders.
+  // This is because without memoization, the function would be recreated continuously,
+  // triggering the useEffect in an infinite loop.
+  const run = React.useCallback((promise)=> {
+    if (!promise) {
+      return
+    }
+   
+   dispatch({type: 'pending'})
+   promise.then(
+     data => {
+       dispatch({type: 'resolved', data})
+     },
+     error => {
+       dispatch({type: 'rejected', error})
+     },
+   )
+   // empty array means the callback doesn't have any dependencies
+   // ie it will only be created once on mount
+  }, [])
+  
+  return {...state, run}
 }
 
 function PokemonInfo({pokemonName}) {
+  
+  const {
+    data,
+    status,
+    error,
+    run,
+  } = useAsync({status: pokemonName ? 'pending' : 'idle'})
 
-  const fetchCallback = React.useCallback(() => {
+  React.useEffect(() => {
     if (!pokemonName) {
       return
     }
-    return fetchPokemon(pokemonName)
-  }, [pokemonName])
+    // 💰 note the absence of `await` here. We're literally passing the promise
+    // to `run` so `useAsync` can attach it's own `.then` handler on it to keep
+    // track of the state of the promise.
+    const pokemonPromise = fetchPokemon(pokemonName)
+    run(pokemonPromise)
+    // run is a dependency of our useEffect
 
-  const state = useAsync(fetchCallback, {
-    status: pokemonName ? 'pending' : 'idle',
-    data: null,
-    error: null,
-  })
-
-  const {data, status, error} = state
+    // so basically, if we are using a function inside a useEffect
+    // the function becames a dependency
+    // and need to memoize it to avoid inifinite re-rendering
+    // This ensures that the function reference remains stable between renders
+  }, [pokemonName, run])
 
   switch (status) {
     case 'idle':
